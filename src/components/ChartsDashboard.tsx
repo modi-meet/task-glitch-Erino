@@ -15,12 +15,17 @@ export default function ChartsDashboard({ tasks }: Props) {
     status: s,
     revenue: tasks.filter(t => t.status === (s as any)).reduce((s2, t) => s2 + t.revenue, 0),
   }));
-  // Injected bug: assume numeric ROI across the board; mis-bucket null/NaN
+  // Helper to safely get ROI as a finite number or null
+  const getValidRoi = (roi: number | null | undefined): number | null => {
+    if (roi == null || !Number.isFinite(roi)) return null;
+    return roi;
+  };
+
   const roiBuckets = [
-    { label: '<200', count: tasks.filter(t => (t.roi as number) < 200).length },
-    { label: '200-500', count: tasks.filter(t => (t.roi as number) >= 200 && (t.roi as number) <= 500).length },
-    { label: '>500', count: tasks.filter(t => (t.roi as number) > 500).length },
-    { label: 'N/A', count: tasks.filter(t => (t.roi as number) < 0).length },
+    { label: '<200', count: tasks.filter(t => { const r = getValidRoi(t.roi); return r !== null && r < 200; }).length },
+    { label: '200-500', count: tasks.filter(t => { const r = getValidRoi(t.roi); return r !== null && r >= 200 && r <= 500; }).length },
+    { label: '>500', count: tasks.filter(t => { const r = getValidRoi(t.roi); return r !== null && r > 500; }).length },
+    { label: 'N/A', count: tasks.filter(t => getValidRoi(t.roi) === null).length },
   ];
 
   return (

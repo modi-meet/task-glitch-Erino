@@ -143,3 +143,121 @@ The `computeROI` function did not validate inputs and allowed division by zero a
 - Form validation prevents invalid inputs at the source
 
 ---
+
+# Build & Deployment Bugs
+
+The following issues were discovered when running `npm run build` for production deployment.
+
+| Bug # | Issue | Severity | Status |
+|-------|-------|----------|--------|
+| 6 | Type Signature Mismatch | High | ✅ Fixed |
+| 7 | Node.js Types Missing | Medium | ✅ Fixed |
+
+---
+
+## Bug 6: Type Signature Mismatch
+
+### Description
+Production build (`npm run build`) failed with TypeScript error: "Property 'createdAt' is missing in type".
+
+### Root Cause
+The `Task` interface requires a `createdAt` property:
+```typescript
+interface Task {
+  id: string;
+  createdAt: string;  // Required!
+  // ...other fields
+}
+```
+
+The `addTask` function signature used `Omit<Task, 'id'>`, which removes only `id` but still requires `createdAt`. However, `createdAt` is generated internally in `addTask`, not provided by the form.
+
+```typescript
+// What the form provides:
+{ title, revenue, timeTaken, priority, status, notes }
+
+// What Omit<Task, 'id'> expects:
+{ title, revenue, timeTaken, priority, status, notes, createdAt } // ❌ Missing!
+```
+
+### Fix
+Updated the type signature from:
+```typescript
+Omit<Task, 'id'>
+```
+To:
+```typescript
+Omit<Task, 'id' | 'createdAt'>
+```
+
+This tells TypeScript that both `id` AND `createdAt` are generated internally and not required from the caller.
+
+### Files Modified
+- `src/hooks/useTasks.ts` (interface + implementation)
+- `src/context/TasksContext.tsx` (interface)
+- `src/components/TaskForm.tsx` (Props interface + handleSubmit)
+- `src/components/TaskTable.tsx` (Props interface + handleSubmit)
+- `src/App.tsx` (handleAdd callback)
+
+### Verification
+- `tsc -b` completes without errors
+- All form submissions work correctly
+- Tasks receive auto-generated `id` and `createdAt` values
+
+---
+
+## Bug 7: Node.js Types Missing
+
+### Description
+Production build failed with errors in `vite.config.ts`:
+- "Cannot find module 'node:path'"
+- "Cannot find name '__dirname'"
+
+### Root Cause
+The Vite configuration file uses Node.js built-in modules:
+```typescript
+import path from 'node:path';
+
+export default defineConfig({
+  resolve: {
+    alias: {
+      '@': path.resolve(__dirname, 'src'),  // __dirname is Node.js global
+    },
+  },
+});
+```
+
+TypeScript doesn't know about Node.js APIs by default. It needs the `@types/node` package to understand:
+- What `path.resolve()` returns
+- That `__dirname` is a valid global string variable
+
+### Why Did Development Mode Work?
+- Development runs Vite directly (Node.js handles the config)
+- Build mode runs TypeScript first, which strictly type-checks all files
+- `tsconfig.node.json` didn't include Node.js type definitions
+
+### Fix
+1. **Installed type definitions**:
+   ```bash
+   npm install -D @types/node
+   ```
+
+2. **Updated `tsconfig.node.json`**:
+   ```json
+   {
+     "compilerOptions": {
+       "types": ["node"]
+     }
+   }
+   ```
+
+### Files Modified
+- `package.json` (new dev dependency)
+- `tsconfig.node.json` (added types array)
+
+### Verification
+- `tsc -b` completes without errors
+- `vite build` bundles successfully
+- `dist/` folder generated and ready for deployment
+
+---
